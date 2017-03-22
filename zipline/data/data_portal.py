@@ -436,15 +436,15 @@ class DataPortal(object):
         except KeyError:
             return np.NaN
 
-    def get_spot_value(self, asset, field, dt, data_frequency):
+    def get_spot_value(self, assets, field, dt, data_frequency):
         """
         Public API method that returns a scalar value representing the value
         of the desired asset's field at either the given dt.
 
         Parameters
         ----------
-        asset : Asset
-            The asset whose data is desired.
+        assets : Asset, ContinuousFuture, or iterable of same.
+            The asset or assets whose data is desired.
         field : {'open', 'high', 'low', 'close', 'volume',
                  'price', 'last_traded'}
             The desired field of the asset.
@@ -463,41 +463,76 @@ class DataPortal(object):
             ``field`` is 'volume' the value will be a int. If the ``field`` is
             'last_traded' the value will be a Timestamp.
         """
-        if self._is_extra_source(asset, field, self._augmented_sources_map):
-            return self._get_fetcher_value(asset, field, dt)
+        assets_is_scalar = False
+        if isinstance(assets, (Asset, ContinuousFuture, str)):
+            assets_is_scalar = True
+            assets = [assets]
 
-        if field not in BASE_FIELDS:
-            raise KeyError("Invalid column: " + str(field))
+        # If 'assets' was not one of the expected types then it should be an
+        # iterable.
+        try:
+            iter(assets)
+        except TypeError:
+            raise TypeError(
+                "Unexpected 'assets' value of type {}.".format(type(assets)),
+            )
 
-        session_label = self.trading_calendar.minute_to_session_label(dt)
+        spot_values = []
 
-        if dt < asset.start_date or \
-                (data_frequency == "daily" and
-                    session_label > asset.end_date) or \
-                (data_frequency == "minute" and
-                 session_label > asset.end_date):
-            if field == "volume":
-                return 0
-            elif field != "last_traded":
-                return np.NaN
-            elif field == "contract":
-                return None
+        for asset in assets:
+            if self._is_extra_source(
+                    asset, field, self._augmented_sources_map):
+                spot_values.append(self._get_fetcher_value(asset, field, dt))
+                continue
 
-        if data_frequency == "daily":
-            if field == "contract":
-                return self._get_current_contract(asset, session_label)
+            if field not in BASE_FIELDS:
+                raise KeyError("Invalid column: " + str(field))
+
+            session_label = self.trading_calendar.minute_to_session_label(dt)
+
+            if dt < asset.start_date or \
+                    (data_frequency == "daily" and
+                        session_label > asset.end_date) or \
+                    (data_frequency == "minute" and
+                     session_label > asset.end_date):
+                if field == "volume":
+                    spot_values.append(0)
+                    continue
+                elif field != "last_traded":
+                    spot_values.append(np.NaN)
+                    continue
+                elif field == "contract":
+                    spot_values.append(None)
+                    continue
+
+            if data_frequency == "daily":
+                if field == "contract":
+                    spot_values.append(
+                        self._get_current_contract(asset, session_label)
+                    )
+                else:
+                    spot_values.append(
+                        self._get_daily_spot_value(asset, field, session_label)
+                    )
             else:
-                return self._get_daily_spot_value(asset, field, session_label)
-        else:
-            if field == "last_traded":
-                return self.get_last_traded_dt(asset, dt, 'minute')
-            elif field == "price":
-                return self._get_minute_spot_value(asset, "close", dt,
-                                                   ffill=True)
-            elif field == "contract":
-                return self._get_current_contract(asset, dt)
-            else:
-                return self._get_minute_spot_value(asset, field, dt)
+                if field == "last_traded":
+                    spot_values.append(
+                        self.get_last_traded_dt(asset, dt, 'minute')
+                    )
+                elif field == "price":
+                    spot_values.append(
+                        self._get_minute_spot_value(
+                            asset, "close", dt, ffill=True,
+                        )
+                    )
+                elif field == "contract":
+                    spot_values.append(self._get_current_contract(asset, dt))
+                else:
+                    spot_values.append(
+                        self._get_minute_spot_value(asset, field, dt)
+                    )
+
+        return spot_values[0] if assets_is_scalar else spot_values
 
     def get_adjustments(self, assets, field, dt, perspective_dt):
         """
