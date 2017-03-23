@@ -527,7 +527,7 @@ class DataPortal(object):
         if assets_is_scalar:
             return get_single_asset_value(assets)
         else:
-            return map(get_single_asset_value, assets)
+            return list(map(get_single_asset_value, assets))
 
     def get_adjustments(self, assets, field, dt, perspective_dt):
         """
