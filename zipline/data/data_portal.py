@@ -483,15 +483,15 @@ class DataPortal(object):
                     .format(type(assets))
                 )
 
-        if field not in BASE_FIELDS:
-            raise KeyError("Invalid column: " + str(field))
-
         session_label = self.trading_calendar.minute_to_session_label(dt)
 
         def get_single_asset_value(asset):
             if self._is_extra_source(
                     asset, field, self._augmented_sources_map):
                 return self._get_fetcher_value(asset, field, dt)
+
+            if field not in BASE_FIELDS:
+                raise KeyError("Invalid column: " + str(field))
 
             if dt < asset.start_date or \
                     (data_frequency == "daily" and
