@@ -303,14 +303,13 @@ class DataPortalTestBase(WithDataPortal,
         dts = trading_calendar.minutes_for_session(self.trading_days[3])
 
         # We expect the outputs to be lists of spot values.
-        expected = OrderedDict({
-            'open': [nan, 203.5],
-            'high': [nan, 203.9],
-            'low': [nan, 203.1],
-            'close': [nan, 203.3],
-            'volume': [0, 2003],
-            'price': [101.3, 203.3],
-        })
+        expected = pd.DataFrame(
+            {
+                equity: [nan, nan, nan, nan, 0, 101.3],
+                future: [203.5, 203.9, 203.1, 203.3, 2003, 203.3],
+            },
+            index=['open', 'high', 'low', 'close', 'volume', 'price'],
+        )
         result = [
             self.data_portal.get_spot_value(
                 assets=[equity, future],
@@ -318,9 +317,9 @@ class DataPortalTestBase(WithDataPortal,
                 dt=dts[1],
                 data_frequency='minute',
             )
-            for field in expected.keys()
+            for field in expected.index
         ]
-        assert_almost_equal(array(list(expected.values())), result)
+        assert_almost_equal(expected.values.tolist(), result)
 
     def test_bar_count_for_simple_transforms(self):
         # July 2015

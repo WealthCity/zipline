@@ -24,7 +24,13 @@ from pandas.tslib import normalize_date
 from six import iteritems
 from six.moves import reduce
 
-from zipline.assets import Asset, Future, Equity
+from zipline.assets import (
+    Asset,
+    AssetConvertible,
+    Equity,
+    Future,
+    PricingDataAssociable,
+)
 from zipline.assets.continuous_futures import ContinuousFuture
 from zipline.data.continuous_future_reader import (
     ContinuousFutureSessionBarReader,
@@ -464,75 +470,67 @@ class DataPortal(object):
             'last_traded' the value will be a Timestamp.
         """
         assets_is_scalar = False
-        if isinstance(assets, (Asset, ContinuousFuture, str)):
+        if isinstance(assets, (AssetConvertible, PricingDataAssociable)):
             assets_is_scalar = True
-            assets = [assets]
+        else:
+            # If 'assets' was not one of the expected types then it should be
+            # an iterable.
+            try:
+                iter(assets)
+            except TypeError:
+                raise TypeError(
+                    "Unexpected 'assets' value of type {}."
+                    .format(type(assets))
+                )
 
-        # If 'assets' was not one of the expected types then it should be an
-        # iterable.
-        try:
-            iter(assets)
-        except TypeError:
-            raise TypeError(
-                "Unexpected 'assets' value of type {}.".format(type(assets)),
-            )
+        if field not in BASE_FIELDS:
+            raise KeyError("Invalid column: " + str(field))
 
-        spot_values = []
+        session_label = self.trading_calendar.minute_to_session_label(dt)
 
-        for asset in assets:
-            if self._is_extra_source(
-                    asset, field, self._augmented_sources_map):
-                spot_values.append(self._get_fetcher_value(asset, field, dt))
-                continue
+        def get_single_asset_value(asset):
+        if self._is_extra_source(
+                asset, field, self._augmented_sources_map):
+            return self._get_fetcher_value(asset, field, dt)
 
-            if field not in BASE_FIELDS:
-                raise KeyError("Invalid column: " + str(field))
+        if dt < asset.start_date or \
+                (data_frequency == "daily" and
+                    session_label > asset.end_date) or \
+                (data_frequency == "minute" and
+                 session_label > asset.end_date):
+            if field == "volume":
+                return 0
+            elif field != "last_traded":
+                return np.NaN
+            elif field == "contract":
+                return None
 
-            session_label = self.trading_calendar.minute_to_session_label(dt)
-
-            if dt < asset.start_date or \
-                    (data_frequency == "daily" and
-                        session_label > asset.end_date) or \
-                    (data_frequency == "minute" and
-                     session_label > asset.end_date):
-                if field == "volume":
-                    spot_values.append(0)
-                    continue
-                elif field != "last_traded":
-                    spot_values.append(np.NaN)
-                    continue
-                elif field == "contract":
-                    spot_values.append(None)
-                    continue
-
-            if data_frequency == "daily":
-                if field == "contract":
-                    spot_values.append(
-                        self._get_current_contract(asset, session_label)
-                    )
-                else:
-                    spot_values.append(
-                        self._get_daily_spot_value(asset, field, session_label)
-                    )
+        if data_frequency == "daily":
+            if field == "contract":
+                return self._get_current_contract(asset, session_label)
             else:
-                if field == "last_traded":
-                    spot_values.append(
-                        self.get_last_traded_dt(asset, dt, 'minute')
-                    )
-                elif field == "price":
-                    spot_values.append(
-                        self._get_minute_spot_value(
-                            asset, "close", dt, ffill=True,
-                        )
-                    )
-                elif field == "contract":
-                    spot_values.append(self._get_current_contract(asset, dt))
-                else:
-                    spot_values.append(
-                        self._get_minute_spot_value(asset, field, dt)
-                    )
+                return self._get_daily_spot_value(
+                    asset, field, session_label,
+                )
+        else:
+            if field == "last_traded":
+                return self.get_last_traded_dt(asset, dt, 'minute')
+            elif field == "price":
+                return self._get_minute_spot_value(
+                    asset, "close", dt, ffill=True,
+                )
+            elif field == "contract":
+                return self._get_current_contract(asset, dt)
+            else:
+                return self._get_minute_spot_value(asset, field, dt)
 
-        return spot_values[0] if assets_is_scalar else spot_values
+        if assets_is_scalar:
+            return get_single_asset_value(assets)
+        else:
+            out = []
+            for asset in assets:
+                out.append(get_single_asset_value(asset))
+            return out
 
     def get_adjustments(self, assets, field, dt, perspective_dt):
         """
