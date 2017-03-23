@@ -1161,10 +1161,6 @@ class AssetFinder(object):
         matches = []
         missing = []
 
-        # If the input is a ContinuousFuture just return it as-is.
-        if isinstance(asset_convertible_or_iterable, ContinuousFuture):
-            return asset_convertible_or_iterable
-
         # Interpret input as scalar.
         if isinstance(asset_convertible_or_iterable, AssetConvertible):
             self._lookup_generic_scalar(
@@ -1180,6 +1176,10 @@ class AssetFinder(object):
                     raise SidsNotFound(sids=[asset_convertible_or_iterable])
                 else:
                     raise SymbolNotFound(symbol=asset_convertible_or_iterable)
+
+        # If the input is a ContinuousFuture just return it as-is.
+        elif isinstance(asset_convertible_or_iterable, ContinuousFuture):
+            return asset_convertible_or_iterable, []
 
         # Interpret input as iterable.
         try:
